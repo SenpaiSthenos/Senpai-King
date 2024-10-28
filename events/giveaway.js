@@ -72,35 +72,81 @@ module.exports = (client) => {
   async function checkGiveaways(client) {
     const now = Date.now();
     if (!client.giveaways) return;
-
+  
     const newGiveaways = [];
+  
     for (const giveaway of client.giveaways) {
       if (giveaway.endTime <= now) {
-        const channel = await client.channels.fetch(giveaway.channel);
-        if (!channel) continue;
-
-        const winners = [];
-        while (winners.length < giveaway.winners && giveaway.entries.length > 0) {
-          const winnerId = giveaway.entries.splice(Math.floor(Math.random() * giveaway.entries.length), 1)[0];
-          winners.push(`<@${winnerId}>`);
+        try {
+     
+          const channel = await client.channels.fetch(giveaway.channel).catch(err => {
+            console.warn(`Channel with ID ${giveaway.channel} not found. Deleting giveaway ${giveaway.messageId}.`);
+            return null;
+          });
+  
+          if (!channel) {
+      
+            await deleteGiveaway(giveaway.messageId);
+            console.log(`Giveaway with ID ${giveaway.messageId} removed due to missing channel.`);
+            continue; 
+          }
+  
+      
+          const message = await channel.messages.fetch(giveaway.messageId).catch(err => {
+            if (err.code === 10008) { 
+              console.warn(`Message with ID ${giveaway.messageId} not found. Deleting giveaway.`);
+              return null;
+            }
+            throw err; 
+          });
+  
+          if (!message) {
+          
+            await deleteGiveaway(giveaway.messageId);
+            console.log(`Giveaway with ID ${giveaway.messageId} removed due to missing message.`);
+            continue;
+          }
+  
+     
+          const hasEmbed = message.embeds && message.embeds.length > 0;
+          if (!hasEmbed) {
+            console.warn(`Embed for giveaway message ID ${giveaway.messageId} not found. Deleting giveaway.`);
+            await deleteGiveaway(giveaway.messageId);
+            console.log(`Giveaway with ID ${giveaway.messageId} removed due to missing embed.`);
+            continue;
+          }
+  
+        
+          const winners = [];
+          while (winners.length < giveaway.winners && giveaway.entries.length > 0) {
+            const winnerId = giveaway.entries.splice(Math.floor(Math.random() * giveaway.entries.length), 1)[0];
+            winners.push(`<@${winnerId}>`);
+          }
+  
+          await channel.send({
+            embeds: [{
+              title: '🎉 Giveaway Ended! 🎉',
+              description: `Prize: **${giveaway.prize}**\nWinners: ${winners.length > 0 ? winners.join(', ') : 'No valid entries.'}`,
+              color: 0x7289da
+            }]
+          });
+  
+          console.log(`Giveaway with ID ${giveaway.messageId} successfully ended and will be removed.`);
+          await deleteGiveaway(giveaway.messageId);
+        } catch (error) {
+          console.error(`Failed to process giveaway with ID ${giveaway.messageId} in channel ${giveaway.channel}:`, error);
         }
-
-        await channel.send({
-          embeds: [{
-            title: '🎉 Giveaway Ended! 🎉',
-            description: `Prize: **${giveaway.prize}**\nWinners: ${winners.length > 0 ? winners.join(', ') : 'No valid entries.'}`,
-            color: 0x7289da
-          }]
-        });
-
-        await deleteGiveaway(giveaway.messageId); 
       } else {
+      
         newGiveaways.push(giveaway);
       }
     }
+  
+   
     client.giveaways = newGiveaways;
+    //console.log(`checkGiveaways completed. Active giveaways remaining: ${client.giveaways.length}`);
   }
-
+  
   function createGiveawayButtons(giveaway) {
     const enterButton = new ButtonBuilder()
       .setCustomId('enter_giveaway')
